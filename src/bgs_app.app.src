@@ -1,0 +1,12 @@
+{application, bgs_app,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { bgs_app, []}},
+  {env, []}
+ ]}.
