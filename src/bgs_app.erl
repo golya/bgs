@@ -8,10 +8,8 @@
 %% ===================================================================
 %% Application callbacks
 %% ===================================================================
-
--export([start/0, stop/0, test/2]).
--export([start/2, stop/1]).
--export([init/1]).
+	
+-compile(export_all).
 
 start() ->
     application:start(?MODULE).
@@ -48,3 +46,26 @@ test(PoolName, Msg) ->
     poolboy:transaction(PoolName, fun(Worker) ->
         gen_server:call(Worker, {test, Msg})
     end).
+	 
+start_server(Port) ->
+	Pid = spawn_link(fun() ->
+		{ok, Listen} = gen_tcp:listen(Port, [binary, {active, false}]),
+		spawn(fun() -> acceptor(Listen) end),
+		timer:sleep(infinity)
+	end),
+	{ok, Pid}.
+ 
+acceptor(ListenSocket) ->
+	{ok, Socket} = gen_tcp:accept(ListenSocket),
+	spawn(fun() -> acceptor(ListenSocket) end),
+	handle(Socket).
+ 
+handle(Socket) ->
+	inet:setopts(Socket, [{active, once}]),
+	receive
+		{tcp, Socket, <<"quit", _/binary>>} ->
+			gen_tcp:close(Socket);
+		{tcp, Socket, Msg} ->
+			gen_tcp:send(Socket, Msg),
+			handle(Socket)
+	end.
