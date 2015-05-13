@@ -59,6 +59,14 @@ acceptor(ListenSocket) ->
 	{ok, Socket} = gen_tcp:accept(ListenSocket),
 	spawn(fun() -> acceptor(ListenSocket) end),
 	handle(Socket).
+	
+ip_address(Socket) ->
+    case inet:peername(Socket) of
+        {ok, {Ip, Port}} ->
+            io:format("ip ~p, port ~p~n", [Ip, Port]);
+        {error, Error} ->
+            io:format("error ~p~n", [Error])
+    end.
  
 handle(Socket) ->
 	inet:setopts(Socket, [{active, once}]),
@@ -66,6 +74,8 @@ handle(Socket) ->
 		{tcp, Socket, <<"quit", _/binary>>} ->
 			gen_tcp:close(Socket);
 		{tcp, Socket, Msg} ->
+			io:format("~p, ~s", [Socket, Msg]),
+			ip_address(Socket),
 			gen_tcp:send(Socket, Msg),
 			handle(Socket)
 	end.
