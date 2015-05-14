@@ -67,14 +67,60 @@ ip_address(Socket) ->
         {error, Error} ->
             io:format("error ~p~n", [Error])
     end.
- 
+	
+
+-define(PORTNO, 8889).
+
+start_link() ->
+    start_link(?PORTNO).
+start_link(P) ->
+    spawn_link(?MODULE, loop0, [P]).
+
+loop0(Port) ->
+    case gen_tcp:listen(Port, [binary, {reuseaddr, true},
+			       {packet, 0}, {active, false}]) of
+	{ok, LSock} ->
+		io:format("spawn worker ~p~n", [LSock]),	
+	    spawn(?MODULE, worker, [self(), LSock]),
+	    loop(LSock);
+	Other ->
+	    io:format("Can't listen to socket ~p~n", [Other])
+    end.
+
+
+loop(S) ->
+    receive
+		next_worker ->
+			io:format("next_worker ~p~n", [S]),
+			spawn_link(?MODULE, worker, [self(), S])
+    end,
+    loop(S).
+	
+
+worker(Server, LS) ->
+    case gen_tcp:accept(LS) of
+	{ok, Socket} ->
+	    Server ! next_worker,
+		io:format("Socket ~p~n", [Socket]),
+	    handle(Socket);
+	{error, Reason} ->
+	    Server ! next_worker,
+	    io:format("Can't accept socket ~p~n", [Reason])
+    end.
+
+	 
 handle(Socket) ->
 	inet:setopts(Socket, [{active, once}]),
 	receive
 		{tcp, Socket, <<"quit", _/binary>>} ->
 			gen_tcp:close(Socket);
+		{tcp, Socket, <<"join	", _/binary>>} ->
+			io:format("~p, ~s~n", [Socket, "the client want to join"]),
+			ip_address(Socket),
+			gen_tcp:send(Socket, "its accepted"),
+			handle(Socket);
 		{tcp, Socket, Msg} ->
-			io:format("~p, ~s", [Socket, Msg]),
+			io:format("~p, ~s~n", ["message is: ", Msg]),
 			ip_address(Socket),
 			gen_tcp:send(Socket, Msg),
 			handle(Socket)
