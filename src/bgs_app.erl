@@ -114,7 +114,7 @@ handle(Socket) ->
 	receive
 		{tcp, Socket, <<"quit", _/binary>>} ->
 			gen_tcp:close(Socket);
-		{tcp, Socket, <<"join	", _/binary>>} ->
+		{tcp, Socket, <<"join", _/binary>>} ->
 			io:format("~p, ~s~n", [Socket, "the client want to join"]),
 			ip_address(Socket),
 			gen_tcp:send(Socket, "its accepted"),
@@ -125,3 +125,9 @@ handle(Socket) ->
 			gen_tcp:send(Socket, Msg),
 			handle(Socket)
 	end.
+	
+
+even(X) when X >= 0 -> 
+	(X band 1) == 0.
+odd(X) when X > 0 -> 
+	not even(X).
