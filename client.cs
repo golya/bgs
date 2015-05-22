@@ -6,57 +6,81 @@ using SocketIOClient.Messages;
 using SocketIOClient.Eventing;
 using System;
 using System.Text;
+using System.Threading;
+using System.IO;
 
-public class client : MonoBehaviour {
+public class Client : MonoBehaviour {
 
-
+	public NetworkStream stream;
 	Int32 Port = 8889;
-	TcpClient Client;
-	NetworkStream stream;
+	byte[] data = new byte[1024];
+	string receiveMsg = "";
+	bool conReady = false;
+	TcpClient client;
 
-	private void SocketOpened(object sender, MessageEventArgs e) {
-		//invoke when socket opened
-	}
 	// Use this for initialization
 	void Start () {		
-		Client = new TcpClient("127.0.0.1", Port);
-		stream = Client.GetStream();
-		Byte[] data = System.Text.Encoding.ASCII.GetBytes("join"); 
-		
-		// Send the message to the connected TcpServer. 
-		stream.Write(data, 0, data.Length);
-		
-		Debug.Log("Sent: join");         
-		
-		// Receive the TcpServer.response. 
-		
-		// Buffer to store the response bytes.
-		data = new Byte[256];
-		
-		// String to store the response ASCII representation.
-		String responseData = String.Empty;
-		
-		// Read the first batch of the TcpServer response bytes.
-		Int32 bytes = stream.Read(data, 0, data.Length);
-		responseData = System.Text.Encoding.ASCII.GetString(data, 0, bytes);
-		Debug.Log("Received: " + responseData);         
+		client = new TcpClient("127.0.0.1", Port);
+		stream = client.GetStream();		
+		Debug.Log("connect to server");       
+		conReady = true;
 		       
 
 	}
 
-	void Update () {
-		string pos = GameObject.Find("ball").transform.position.ToString();
-		byte[] data = Encoding.UTF8.GetBytes(pos);
-		
-		// Send the message to the connected TcpServer. 
-		stream.Write(data, 0, data.Length);
+	public void sendMsg(float x, float y) {
+		byte[] data = System.Text.Encoding.ASCII.GetBytes(x.ToString() + "," +  y.ToString());
+		stream.Write (data, 0, data.Length);
 	}
+
+	void Update () {
+		if(client.Connected) {
+			receiveData();
+		}		 
+	}
+
+	public void receiveData() {
+		if(!conReady) {
+			Debug.Log("connection not ready...");
+			return;
+		}
+		
+		int numberOfBytesRead = 0;
+		
+		if(stream.CanRead) {
+			try {
+				
+				numberOfBytesRead = stream.Read(data, 0, data.Length);  
+				receiveMsg = System.Text.Encoding.ASCII.GetString(data, 0, numberOfBytesRead);
+				Debug.Log("receive msg:  " + receiveMsg);
+				string[] words = receiveMsg.Split(',');
+
+				Vector3 dir = Vector3.zero;
+				dir.y = float.Parse(words[1], System.Globalization.CultureInfo.InvariantCulture);
+				dir.x = float.Parse(words[0], System.Globalization.CultureInfo.InvariantCulture);
+				if (dir.sqrMagnitude > 1)
+					dir.Normalize();
+				
+				dir *= Time.deltaTime;
+				GameObject.Find("ball").transform.Translate(dir * 10);
+
+
+			}
+			catch(Exception e)
+			{
+				Debug.Log("Error in NetworkStream: " + e);
+			}
+		}
+		
+		receiveMsg = "";
+	}
+
 
 	void OnDestroy () {
 		
 		// Close everything.
 		stream.Close();         
-		Client.Close();  
+		client.Close();  
 	}
 
 }

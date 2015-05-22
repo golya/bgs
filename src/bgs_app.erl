@@ -120,8 +120,6 @@ handle(Socket) ->
 			gen_tcp:send(Socket, "its accepted"),
 			handle(Socket);
 		{tcp, Socket, Msg} ->
-			io:format("~p, ~s~n", ["message is: ", Msg]),
-			ip_address(Socket),
 			gen_tcp:send(Socket, Msg),
 			handle(Socket)
 	end.
