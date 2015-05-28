@@ -2,7 +2,8 @@
  [
   {description, ""},
   {vsn, "1"},
-  {registered, []},
+  {modules,      [tcp_listener]},
+  {registered,   [tcp_server_sup, tcp_listener]},
   {applications, [
                   kernel,
                   stdlib

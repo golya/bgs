@@ -1,131 +1,88 @@
 -module(bgs_app).
 
 -behaviour(application).
--behaviour(supervisor).
+ 
+%% Internal API
+-export([start_client/0]).
+ 
+%% Application and Supervisor callbacks
+-export([start/2, stop/1, init/1]).
+ 
 
 -include("bgs.hrl").
 
-%% ===================================================================
-%% Application callbacks
-%% ===================================================================
-	
--compile(export_all).
-
-start() ->
-    application:start(?MODULE).
-
-stop() ->
-    application:stop(?MODULE).
-
-start(_Type, _Args) ->
-	?DEBUG("Start BGS~n", []),
-    supervisor:start_link({local, example_sup}, ?MODULE, []).
-
-stop(_State) ->
-    ok.
-
-init([]) ->
-    Pools = [
-		{pool1, [
-			{size, 10},
-			{max_overflow, 20}
-		], [test]},
-		{pool2, [
-			{size, 5},
-			{max_overflow, 10}
-		], [test]}
-	],
-    PoolSpecs = lists:map(fun({Name, SizeArgs, WorkerArgs}) ->
-        PoolArgs = [{name, {local, Name}},
-                    {worker_module, bgs_worker}] ++ SizeArgs,
-        poolboy:child_spec(Name, PoolArgs, WorkerArgs)
-    end, Pools),
-    {ok, {{one_for_one, 10, 10}, PoolSpecs}}.
-	
-test(PoolName, Msg) ->
-    poolboy:transaction(PoolName, fun(Worker) ->
-        gen_server:call(Worker, {test, Msg})
-    end).
-	 
-start_server(Port) ->
-	Pid = spawn_link(fun() ->
-		{ok, Listen} = gen_tcp:listen(Port, [binary, {active, false}]),
-		spawn(fun() -> acceptor(Listen) end),
-		timer:sleep(infinity)
-	end),
-	{ok, Pid}.
+  
+-define(MAX_RESTART,    5).
+-define(MAX_TIME,      60).
+-define(DEF_PORT,    8889).
  
-acceptor(ListenSocket) ->
-	{ok, Socket} = gen_tcp:accept(ListenSocket),
-	spawn(fun() -> acceptor(ListenSocket) end),
-	handle(Socket).
-	
-ip_address(Socket) ->
-    case inet:peername(Socket) of
-        {ok, {Ip, Port}} ->
-            io:format("ip ~p, port ~p~n", [Ip, Port]);
-        {error, Error} ->
-            io:format("error ~p~n", [Error])
+%% A startup function for spawning new client connection handling FSM.
+%% To be called by the TCP listener process.
+start_client() ->
+    supervisor:start_child(tcp_client_sup, []).
+ 
+%%----------------------------------------------------------------------
+%% Application behaviour callbacks
+%%----------------------------------------------------------------------
+start(_Type, _Args) ->
+    ListenPort = get_app_env(listen_port, ?DEF_PORT),
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [ListenPort, tcp_echo_fsm]).
+ 
+stop(_S) ->
+    ok.
+ 
+%%----------------------------------------------------------------------
+%% Supervisor behaviour callbacks
+%%----------------------------------------------------------------------
+init([Port, Module]) ->
+    {ok,
+        {_SupFlags = {one_for_one, ?MAX_RESTART, ?MAX_TIME},
+            [
+              % TCP Listener
+              {   tcp_server_sup,                          % Id       = internal id
+                  {tcp_listener,start_link,[Port,Module]}, % StartFun = {M, F, A}
+                  permanent,                               % Restart  = permanent | transient | temporary
+                  2000,                                    % Shutdown = brutal_kill | int() >= 0 | infinity
+                  worker,                                  % Type     = worker | supervisor
+                  [tcp_listener]                           % Modules  = [Module] | dynamic
+              },
+              % Client instance supervisor
+              {   tcp_client_sup,
+                  {supervisor,start_link,[{local, tcp_client_sup}, ?MODULE, [Module]]},
+                  permanent,                               % Restart  = permanent | transient | temporary
+                  infinity,                                % Shutdown = brutal_kill | int() >= 0 | infinity
+                  supervisor,                              % Type     = worker | supervisor
+                  []                                       % Modules  = [Module] | dynamic
+              }
+            ]
+        }
+    };
+ 
+init([Module]) ->
+    {ok,
+        {_SupFlags = {simple_one_for_one, ?MAX_RESTART, ?MAX_TIME},
+            [
+              % TCP Client
+              {   undefined,                               % Id       = internal id
+                  {Module,start_link,[]},                  % StartFun = {M, F, A}
+                  temporary,                               % Restart  = permanent | transient | temporary
+                  2000,                                    % Shutdown = brutal_kill | int() >= 0 | infinity
+                  worker,                                  % Type     = worker | supervisor
+                  []                                       % Modules  = [Module] | dynamic
+              }
+            ]
+        }
+    }.
+ 
+%%----------------------------------------------------------------------
+%% Internal functions
+%%----------------------------------------------------------------------
+get_app_env(Opt, Default) ->
+    case application:get_env(application:get_application(), Opt) of
+    {ok, Val} -> Val;
+    _ ->
+        case init:get_argument(Opt) of
+        [[Val | _]] -> Val;
+        error       -> Default
+        end
     end.
-	
-
--define(PORTNO, 8889).
-
-start_link() ->
-    start_link(?PORTNO).
-start_link(P) ->
-    spawn_link(?MODULE, loop0, [P]).
-
-loop0(Port) ->
-    case gen_tcp:listen(Port, [binary, {reuseaddr, true},
-			       {packet, 0}, {active, false}]) of
-	{ok, LSock} ->
-		io:format("spawn worker ~p~n", [LSock]),	
-	    spawn(?MODULE, worker, [self(), LSock]),
-	    loop(LSock);
-	Other ->
-	    io:format("Can't listen to socket ~p~n", [Other])
-    end.
-
-
-loop(S) ->
-    receive
-		next_worker ->
-			io:format("next_worker ~p~n", [S]),
-			spawn_link(?MODULE, worker, [self(), S])
-    end,
-    loop(S).
-	
-
-worker(Server, LS) ->
-    case gen_tcp:accept(LS) of
-	{ok, Socket} ->
-	    Server ! next_worker,
-		io:format("Socket ~p~n", [Socket]),
-	    handle(Socket);
-	{error, Reason} ->
-	    Server ! next_worker,
-	    io:format("Can't accept socket ~p~n", [Reason])
-    end.
-
-	 
-handle(Socket) ->
-	inet:setopts(Socket, [{active, once}]),
-	receive
-		{tcp, Socket, <<"quit", _/binary>>} ->
-			gen_tcp:close(Socket);
-		{tcp, Socket, <<"join", _/binary>>} ->
-			io:format("~p, ~s~n", [Socket, "the client want to join"]),
-			ip_address(Socket),
-			gen_tcp:send(Socket, "its accepted"),
-			handle(Socket);
-		{tcp, Socket, Msg} ->
-			gen_tcp:send(Socket, Msg),
-			handle(Socket)
-	end.
-	
-
-even(X) when X >= 0 -> 
-	(X band 1) == 0.
-odd(X) when X > 0 -> 
-	not even(X).
