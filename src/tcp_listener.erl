@@ -8,7 +8,7 @@
  
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3, handle/1]).
+         code_change/3]).
  
 -record(state, {
                 listener,       % Listening socket
@@ -102,12 +102,8 @@ handle_info({inet_async, ListSock, Ref, {ok, CliSocket}},
         %% New client connected - spawn a new process using the simple_one_for_one
         %% supervisor.
         
-		%%{ok, Pid} = bgs_app:start_client(),
-		Pid = spawn(tcp_listener, handle, [CliSocket]),
-		
-		io:format("the pid: ~p~n", [Pid]),
-        gen_tcp:controlling_process(CliSocket, Pid),
-        %% Instruct the new FSM that it owns the socket.
+		{ok, Pid} = bgs_app:start_client(),
+        Result = gen_tcp:controlling_process(CliSocket, Pid),
         Module:set_socket(Pid, CliSocket),
  
         %% Signal the network driver that we are ready to accept another connection
@@ -115,7 +111,7 @@ handle_info({inet_async, ListSock, Ref, {ok, CliSocket}},
         {ok,    NewRef} -> ok;
         {error, NewRef} -> exit({async_accept, inet:format_error(NewRef)})
         end,
- 
+		
         {noreply, State#state{acceptor=NewRef}}
     catch exit:Why ->
         error_logger:error_msg("Error in async accept: ~p.\n", [Why]),
@@ -127,7 +123,6 @@ handle_info({inet_async, ListSock, Ref, Error}, #state{listener=ListSock, accept
     {stop, Error, State};
  
 handle_info(_Info, State) ->
-	io:format("wtf~n", []),
     {noreply, State}.
  
 %%-------------------------------------------------------------------------
@@ -168,14 +163,3 @@ set_sockopt(ListSock, CliSocket) ->
     Error ->
         gen_tcp:close(CliSocket), Error
     end.
-	
-	
-handle(Socket) ->
-	inet:setopts(Socket, [{active, once}]),
-	receive
-		{tcp, Socket, <<"quit", _/binary>>} ->
-			gen_tcp:close(Socket);
-		{tcp, Socket, Msg} ->
-			gen_tcp:send(Socket, Msg),
-			handle(Socket)
-	end.

@@ -11,16 +11,14 @@ MESSAGE = "ok"
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.connect((TCP_IP, TCP_PORT))
 
-s.send(MESSAGE)
+print(s.getsockname())
+res = s.send("xxx")
+
 i = 0
 while True:
 	i += 1
 	data = s.recv(BUFFER_SIZE)
 	print "received data:", data, i
-	if data == "ok":
-		s.send("join")
-	if data == "its accepted":
-		s.send("thanks")
 	
 	s.send("xxx")
 s.close()

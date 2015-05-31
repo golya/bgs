@@ -26,7 +26,7 @@ start_client() ->
 %%----------------------------------------------------------------------
 start(_Type, _Args) ->
     ListenPort = get_app_env(listen_port, ?DEF_PORT),
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [ListenPort, tcp_echo_fsm]).
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [ListenPort, game_server]).
  
 stop(_S) ->
     ok.
